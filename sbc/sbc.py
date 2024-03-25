@@ -18,7 +18,7 @@ LISTEN_BACKLOG = 10
 def argparser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser('sbc', description='''
     Runs SBC that decides whether to unlock the door, based on frames from
-    camera
+    camera.
     ''')
 
     default_proto = 'tcp'
@@ -36,13 +36,12 @@ def argparser() -> argparse.ArgumentParser:
 
 def tcp_server(server_sk: socket.socket) -> int:
     server_sk.listen(LISTEN_BACKLOG)
-    should_run = True
-    while should_run:
-        try:
+    try:
+        sk, addr = server_sk.accept()
+        while True:
             pass
-        except KeyboardInterrupt:
-            should_run = False
-            print('Stopping server...')
+    except KeyboardInterrupt:
+        print('Stopping server...')
     return 0
 
 
@@ -56,6 +55,14 @@ SERVER_HOOKS = {
 }
 
 
+def server_info(family: socket.AddressFamily, sk: socket.socket):
+    ipv6_extra_fmt = '; flowinfo: %d; scope id: %d'
+    fmt = 'address: %s; port: %d'
+    if family == socket.AF_INET6:
+        fmt += ipv6_extra_fmt
+    print(fmt % sk.getsockname())
+
+
 def main() -> int:
     ret = 0
     args = argparser().parse_args()
@@ -63,11 +70,10 @@ def main() -> int:
     family, type, proto, _, sockaddr = socket.getaddrinfo(args.host, args.port,
         proto=PROTOS_MAP.get(args.proto, socket.IPPROTO_TCP))[0]
 
-    print(family, type, proto, sockaddr)
-
     with closing(socket.socket(family, type, proto)) as sk:
         sk.bind(sockaddr)
         sk.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server_info(family, sk)
         ret = SERVER_HOOKS[proto](sk)
     return ret
 
