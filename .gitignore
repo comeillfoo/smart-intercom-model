@@ -4,3 +4,5 @@
 !.gitignore
 !*.py
 !requirements.txt
+!camera
+!sbc
