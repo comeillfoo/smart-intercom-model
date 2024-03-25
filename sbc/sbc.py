@@ -2,6 +2,7 @@
 import sys
 import argparse
 import socket
+import struct
 from contextlib import closing
 
 
@@ -34,14 +35,30 @@ def argparser() -> argparse.ArgumentParser:
     return p
 
 
+def tcp_negotiate(sk: socket.socket) -> tuple[int, int, int]:
+    shape = struct.unpack('NNN', sk.recv(struct.calcsize('NNN'))) # width, height, channels
+    if 3 != len(shape):
+        raise ValueError
+    return shape
+
+
+def handle_kbd_int(server):
+    def wrapper(server_sk: socket.socket) -> int:
+        try:
+            return server(server_sk)
+        except KeyboardInterrupt:
+            print('Stopping server...')
+        return 0
+    return wrapper
+
+
+@handle_kbd_int
 def tcp_server(server_sk: socket.socket) -> int:
     server_sk.listen(LISTEN_BACKLOG)
-    try:
-        sk, addr = server_sk.accept()
-        while True:
-            pass
-    except KeyboardInterrupt:
-        print('Stopping server...')
+    sk, addr = server_sk.accept()
+    print('Agreed on ', *tcp_negotiate(sk))
+    while True:
+        pass
     return 0
 
 
