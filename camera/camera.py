@@ -5,10 +5,15 @@ import socket
 import pickle
 import struct
 import cv2
+import time
 from contextlib import closing
+from typing import Tuple
+import threading
+
+from lock import DoorLock
 
 
-SUPPORTED_PROTOS = [ 'tcp', 'udp' ] # TODO: rtsp
+SUPPORTED_PROTOS = [ 'tcp', 'udp' ]
 
 PROTOS_MAP = {
     'tcp': socket.IPPROTO_TCP,
@@ -24,9 +29,13 @@ def argparser() -> argparse.ArgumentParser:
 
     default_proto = 'tcp'
     p.add_argument('-p', '--proto', choices=SUPPORTED_PROTOS, default=default_proto,
-        help=f'belect the transfer protocol, default \'{default_proto}\'')
+        help=f'select the transfer protocol, default \'{default_proto}\'')
 
     p.add_argument('-P', '--port', type=int, required=True, help='connect port')
+
+    default_delay = 3.0 # seconds
+    p.add_argument('-d', '--delay', type=float, default=default_delay,
+        help=f'delay (seconds) between frame sends, default {default_delay}')
 
     default_host = 'localhost'
     p.add_argument('host', nargs='?', default=default_host,
@@ -42,38 +51,62 @@ def tcp_negotiate(cam, sk: socket.socket) -> int:
 
 
 def handle_kbd_int(client):
-    def wrapper(cam, sk: socket.socket, sockaddr) -> int:
+    def wrapper(cam, door: DoorLock, sk: socket.socket, sockaddr, delay: float = 3.0) -> int:
         try:
-            return client(cam, sk, sockaddr)
+            return client(cam, door, sk, sockaddr, delay)
         except KeyboardInterrupt:
             print('Stopping client...')
         return 0
     return wrapper
 
 
+def tcp_send_frame(cam, sk: socket.socket) -> int:
+    camret, frame = cam.read()
+    if not camret:
+        print('Failed to capture frame')
+        return 1
+    data = pickle.dumps(frame)
+    try:
+        sk.sendall(struct.pack('N', len(data)) + data)
+    except socket.error as serr:
+        print(serr)
+        return 1
+    return 0
+
+
+def tcp_recv_answer(sk: socket.socket) -> Tuple[bool, int]:
+    answer, ret = False, 0
+    try:
+        answer = struct.unpack('?', sk.recv(1))
+    except socket.error as serr:
+        print(serr)
+        ret = 1
+    return (answer, ret)
+
+
 @handle_kbd_int
-def tcp_client(cam, sk: socket.socket, sockaddr) -> int:
+def tcp_client(cam, door: DoorLock, sk: socket.socket, sockaddr,
+               delay: float = 3.0) -> int:
     sk.connect(sockaddr)
     ret = tcp_negotiate(cam, sk)
     if ret: return ret
     while True:
-        pass
-        # camret, frame = cam.read()
-        # if not camret:
-        #     print('failed to grab frame')
-        #     ret = 1
-        #     break
-        # data = pickle.dumps(frame)
-        # sk.sendall(struct.pack('H', len(data)) + data)
-
+        ret = tcp_send_frame(cam, sk)
+        if ret: break
+        time.sleep(delay)
+        should_door_unlock, ret = tcp_recv_answer(sk)
+        if ret: break
+        if should_door_unlock:
+            threading.Thread(target=DoorLock.unlock_lock, args=[door]).start()
     return ret
 
 
-def udp_client(cam, sk: socket.socket, sockaddr) -> int:
+def udp_client(cam, door: DoorLock, sk: socket.socket, sockaddr,
+               delay: float = 3.0) -> int:
     return 0
 
 
-SERVER_HOOKS = {
+CLIENT_HOOKS = {
     socket.IPPROTO_TCP: tcp_client,
     socket.IPPROTO_UDP: udp_client,
 }
@@ -84,11 +117,12 @@ def main() -> int:
     args = argparser().parse_args()
 
     cam = cv2.VideoCapture(0)
+    door = DoorLock()
 
     family, type, proto, _, sockaddr = socket.getaddrinfo(args.host, args.port,
         proto=PROTOS_MAP.get(args.proto, socket.IPPROTO_TCP))[0]
     with closing(socket.socket(family, type, proto)) as sk:
-        ret = SERVER_HOOKS[proto](cam, sk, sockaddr)
+        ret = CLIENT_HOOKS[proto](cam, door, sk, sockaddr, args.delay)
 
     cam.release()
     return ret

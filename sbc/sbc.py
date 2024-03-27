@@ -3,10 +3,11 @@ import sys
 import argparse
 import socket
 import struct
+import pickle
 from contextlib import closing
 
 
-SUPPORTED_PROTOS = [ 'tcp', 'udp' ] # TODO: rtsp
+SUPPORTED_PROTOS = [ 'tcp', 'udp' ]
 
 PROTOS_MAP = {
     'tcp': socket.IPPROTO_TCP,
@@ -52,14 +53,49 @@ def handle_kbd_int(server):
     return wrapper
 
 
+def tcp_recv_frame(sk: socket.socket, frame_size: int):
+    data = b''
+    payload_len = struct.calcsize('N')
+    try:
+        while len(data) < payload_len:
+            data += sk.recv(payload_len)
+        msg_size = struct.unpack('N', data[:payload_len])[0]
+        data = data[payload_len:]
+        print(msg_size, frame_size)
+        while len(data) < msg_size:
+            data += sk.recv(frame_size)
+        return (pickle.loads(data[:msg_size]), 0)
+    except socket.error as serr:
+        print(serr)
+    return (None, 1)
+
+
+def tcp_send_answer(sk: socket.socket, answer: bool) -> int:
+    ret = 0
+    try:
+        sk.send(struct.pack('?', answer))
+    except socket.error as serr:
+        print(serr)
+        ret = 1
+    return ret
+
+
 @handle_kbd_int
 def tcp_server(server_sk: socket.socket) -> int:
     server_sk.listen(LISTEN_BACKLOG)
     sk, addr = server_sk.accept()
-    print('Agreed on ', *tcp_negotiate(sk))
+    print('Connected to camera', addr)
+    width, height, channels = tcp_negotiate(sk)
+    print('Agreed on %d x %d x %d frames' % (width, height, channels))
+    ret = 0
     while True:
-        pass
-    return 0
+        frame, ret = tcp_recv_frame(sk, width * height * channels)
+        if ret: break
+        print(frame.shape)
+        if ret: break
+        ret = tcp_send_answer(sk, True)
+        if ret: break
+    return ret
 
 
 def udp_server(server_sk: socket.socket) -> int:
