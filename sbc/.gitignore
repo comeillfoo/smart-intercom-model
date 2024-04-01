@@ -1,0 +1,7 @@
+*
+!.gitignore
+!requirements.txt
+!*.py
+!memory/
+!memory/grant
+!memory/deny

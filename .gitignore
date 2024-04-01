@@ -2,7 +2,6 @@
 !*.md
 !LICENSE
 !.gitignore
-!*.py
-!requirements.txt
 !camera
 !sbc
+!sbc/memory
