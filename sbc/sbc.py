@@ -4,9 +4,13 @@ import argparse
 import socket
 import struct
 import pickle
+import cv2
+from typing import Tuple, Optional
+
 from contextlib import closing
 from pathlib import Path
 from numpy.typing import NDArray
+from cv2.typing import MatLike
 
 from tools.encode_faces import SUPPORTED_DETECTION_MODELS
 
@@ -55,24 +59,33 @@ def argparser() -> argparse.ArgumentParser:
     return p
 
 
-def tcp_negotiate(sk: socket.socket) -> tuple[int, int, int]:
-    shape = struct.unpack('NNN', sk.recv(struct.calcsize('NNN'))) # width, height, channels
-    if 3 != len(shape):
-        raise ValueError
-    return shape
+def handle_frame(frame: MatLike,
+                 granted: list[NDArray], denied: list[NDArray]) -> bool:
+    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    # TODO: localize face, compute encoding
+    # TODO: compare with granted faces and denied, in confusing situations -> ask user
+    return True
 
 
-def handle_kbd_int(server):
-    def wrapper(server_sk: socket.socket) -> int:
+def handle_kbd_int(server_hook):
+    def wrapper(server_sk: socket.socket,
+                granted: list[NDArray], denied: list[NDArray]) -> int:
         try:
-            return server(server_sk)
+            return server_hook(server_sk, granted, denied)
         except KeyboardInterrupt:
             print('Stopping server...')
         return 0
     return wrapper
 
 
-def tcp_recv_frame(sk: socket.socket, frame_size: int):
+def tcp_negotiate(sk: socket.socket) -> Tuple[int, int, int]:
+    shape = struct.unpack('NNN', sk.recv(struct.calcsize('NNN'))) # width, height, channels
+    if 3 != len(shape):
+        raise ValueError
+    return shape
+
+
+def tcp_recv_frame(sk: socket.socket, frame_size: int) -> Tuple[Optional[MatLike], int]:
     data = b''
     payload_len = struct.calcsize('N')
     try:
@@ -100,7 +113,8 @@ def tcp_send_answer(sk: socket.socket, answer: bool) -> int:
 
 
 @handle_kbd_int
-def tcp_server(server_sk: socket.socket) -> int:
+def tcp_server(server_sk: socket.socket,
+               granted: list[NDArray], denied: list[NDArray]) -> int:
     server_sk.listen(LISTEN_BACKLOG)
     sk, addr = server_sk.accept()
     print('Connected to camera', addr)
@@ -110,14 +124,18 @@ def tcp_server(server_sk: socket.socket) -> int:
     while True:
         frame, ret = tcp_recv_frame(sk, width * height * channels)
         if ret: break
+
         print(frame.shape)
-        if ret: break
-        ret = tcp_send_answer(sk, True)
+        # the decision, whether allow entrance or not, is being made here
+        answer = handle_frame(frame, granted, denied)
+        ret = tcp_send_answer(sk, answer)
         if ret: break
     return ret
 
 
-def udp_server(server_sk: socket.socket) -> int:
+def udp_server(server_sk: socket.socket,
+               granted: list[NDArray], denied: list[NDArray]) -> int:
+    # TODO: udp server
     return 0
 
 
@@ -157,7 +175,7 @@ def main() -> int:
         sk.bind(sockaddr)
         sk.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server_info(family, sk)
-        ret = SERVER_HOOKS[proto](sk)
+        ret = SERVER_HOOKS[proto](sk, granted, denied)
     return ret
 
 

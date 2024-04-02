@@ -12,13 +12,14 @@ import threading
 
 from lock import DoorLock
 
+PROTOS_KEY_VALUES = [
+    ('tcp', socket.IPPROTO_TCP),
+    ('udp', socket.IPPROTO_UDP)
+]
 
-SUPPORTED_PROTOS = [ 'tcp', 'udp' ]
+SUPPORTED_PROTOS = list(map(lambda pair: pair[0], PROTOS_KEY_VALUES))
 
-PROTOS_MAP = {
-    'tcp': socket.IPPROTO_TCP,
-    'udp': socket.IPPROTO_UDP,
-}
+PROTOS_MAP = dict(PROTOS_KEY_VALUES)
 
 
 def argparser() -> argparse.ArgumentParser:
@@ -43,24 +44,25 @@ def argparser() -> argparse.ArgumentParser:
     return p
 
 
-def tcp_negotiate(cam, sk: socket.socket) -> int:
+def tcp_negotiate(cam: cv2.VideoCapture, sk: socket.socket) -> int:
     test_ret, test_frame = cam.read()
     if not test_ret: return 1
     sk.sendall(struct.pack('NNN', *test_frame.shape))
     return 0
 
 
-def handle_kbd_int(client):
-    def wrapper(cam, door: DoorLock, sk: socket.socket, sockaddr, delay: float = 3.0) -> int:
+def handle_kbd_int(client_hook):
+    def wrapper(cam: cv2.VideoCapture, door: DoorLock, sk: socket.socket,
+                sockaddr, delay: float = 3.0) -> int:
         try:
-            return client(cam, door, sk, sockaddr, delay)
+            return client_hook(cam, door, sk, sockaddr, delay)
         except KeyboardInterrupt:
             print('Stopping client...')
         return 0
     return wrapper
 
 
-def tcp_send_frame(cam, sk: socket.socket) -> int:
+def tcp_send_frame(cam: cv2.VideoCapture, sk: socket.socket) -> int:
     camret, frame = cam.read()
     if not camret:
         print('Failed to capture frame')
@@ -85,7 +87,7 @@ def tcp_recv_answer(sk: socket.socket) -> Tuple[bool, int]:
 
 
 @handle_kbd_int
-def tcp_client(cam, door: DoorLock, sk: socket.socket, sockaddr,
+def tcp_client(cam: cv2.VideoCapture, door: DoorLock, sk: socket.socket, sockaddr,
                delay: float = 3.0) -> int:
     sk.connect(sockaddr)
     ret = tcp_negotiate(cam, sk)
@@ -101,8 +103,9 @@ def tcp_client(cam, door: DoorLock, sk: socket.socket, sockaddr,
     return ret
 
 
-def udp_client(cam, door: DoorLock, sk: socket.socket, sockaddr,
-               delay: float = 3.0) -> int:
+def udp_client(cam: cv2.VideoCapture, door: DoorLock, sk: socket.socket,
+               sockaddr, delay: float = 3.0) -> int:
+    # TODO: udp client
     return 0
 
 
@@ -121,6 +124,7 @@ def main() -> int:
 
     family, type, proto, _, sockaddr = socket.getaddrinfo(args.host, args.port,
         proto=PROTOS_MAP.get(args.proto, socket.IPPROTO_TCP))[0]
+
     with closing(socket.socket(family, type, proto)) as sk:
         ret = CLIENT_HOOKS[proto](cam, door, sk, sockaddr, args.delay)
 
