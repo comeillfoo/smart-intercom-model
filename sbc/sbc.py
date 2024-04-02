@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 import sys
-import os
 import argparse
 import socket
 import struct
 import pickle
 from contextlib import closing
+from pathlib import Path
+from numpy.typing import NDArray
 
 from tools.encode_faces import SUPPORTED_DETECTION_MODELS
 
@@ -18,13 +19,6 @@ PROTOS_MAP = {
 }
 
 LISTEN_BACKLOG = 10
-
-
-def dir_path(string):
-    if os.path.isdir(string):
-        return string
-    else:
-        raise NotADirectoryError(string)
 
 
 def argparser() -> argparse.ArgumentParser:
@@ -40,13 +34,15 @@ def argparser() -> argparse.ArgumentParser:
     p.add_argument('-P', '--port', type=int, default=0,
         help='bind port, use 0 for random, default random')
 
-    default_grant = 'memory/grant'
-    p.add_argument('-g', '--grant', default=default_grant, metavar='PATH', type=dir_path,
-        help=f'path to images to people who are allowed to enter, default \'{default_grant}\'')
+    default_grant = Path('memory/grant')
+    p.add_argument('-g', '--grant', default=default_grant, metavar='PATH',
+        type=Path, help='path to serialized faces who are allowed to enter, ' \
+        f'default \'{default_grant}\'')
 
-    default_deny = 'memory/deny'
-    p.add_argument('-d', '--deny', default=default_deny, metavar='PATH', type=dir_path,
-        help=f'path to images to people who are not allowed to enter, default \'{default_deny}\'')
+    default_deny = Path('memory/deny')
+    p.add_argument('-d', '--deny', default=default_deny, metavar='PATH',
+        type=Path, help='path to serialized faces who are not allowed to enter, ' \
+        f'default \'{default_deny}\'')
 
     default_detection_model = SUPPORTED_DETECTION_MODELS[0]
     p.add_argument('-f', '--face-detection-model', choices=SUPPORTED_DETECTION_MODELS, default=default_detection_model,
@@ -139,12 +135,20 @@ def server_info(family: socket.AddressFamily, sk: socket.socket):
     print(fmt % sk.getsockname())
 
 
+def read_faces_encodings(path: Path) -> list[NDArray]:
+    try:
+        with open(path, 'rb') as f:
+            return pickle.loads(f.read())
+    except Exception as e:
+        return []
+
+
 def main() -> int:
     ret = 0
     args = argparser().parse_args()
 
-    granted = read_faces_encodings(args.grant, args.face_detection_model)
-    denied = read_faces_encodings(args.deny, args.face_detection_model)
+    granted = read_faces_encodings(args.grant)
+    denied = read_faces_encodings(args.deny)
 
     family, type, proto, _, sockaddr = socket.getaddrinfo(args.host, args.port,
         proto=PROTOS_MAP.get(args.proto, socket.IPPROTO_TCP))[0]
