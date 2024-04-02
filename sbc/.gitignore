@@ -3,5 +3,7 @@
 !requirements.txt
 !*.py
 !memory/
-!memory/grant
-!memory/deny
+!tools/
+!tests/
+!.gitkeep
+!*.png
