@@ -1,0 +1,41 @@
+name: Static Analysis
+
+on: [push]
+
+env:
+  PYTHON_VERSION: '3.9.12'
+
+jobs:
+  linting:
+    name: Linter
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+      - run: pip install pylint
+      - name: Pylint camera
+        run: pylint camera/*.py
+      - name: Pylint SBC
+        run: pylint sbc/*.py
+      - name: Pylint SBC tools
+        run: pylint sbc/tools/*.py
+
+  typechecking:
+    name: Static type check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+      - run: pip install mypy
+      - name: Type check camera
+        run: mypy camera/camera.py
+      - name: Type check SBC
+        run: mypy sbc/sbc.py
+      - name: Type check faces encoder
+        run: mypy sbc/tools/encode_faces.py

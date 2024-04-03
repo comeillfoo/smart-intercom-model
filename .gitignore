@@ -2,6 +2,8 @@
 !*.md
 !LICENSE
 !.gitignore
-!camera
-!sbc
-!sbc/memory
+!camera/
+!sbc/
+!.github/
+!.github/workflows/
+!.github/workflows/*.yml
