@@ -126,6 +126,9 @@ def tcp_server(server_sk: socket.socket,
         if ret: break
 
         print(frame.shape)
+        cv2.imshow(f'{id(frame)}', frame)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
         # the decision, whether allow entrance or not, is being made here
         answer = handle_frame(frame, granted, denied)
         ret = tcp_send_answer(sk, answer)
