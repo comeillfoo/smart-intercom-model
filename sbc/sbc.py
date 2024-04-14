@@ -6,13 +6,19 @@ import struct
 import pickle
 import cv2
 from typing import Tuple, Optional
+from dataclasses import dataclass, field
+from functools import reduce
 
 from contextlib import closing
 from pathlib import Path
 from numpy.typing import NDArray
 from cv2.typing import MatLike
 
+import face_recognition as freg
+
 from tools.encode_faces import SUPPORTED_DETECTION_MODELS
+from tools.encode_faces import localize_faces_and_compute_encodings, \
+    convert_to_rgb
 
 
 SUPPORTED_PROTOS = [ 'tcp', 'udp' ]
@@ -23,6 +29,17 @@ PROTOS_MAP = {
 }
 
 LISTEN_BACKLOG = 10
+
+
+@dataclass
+class SBCContext:
+    '''Class for storing list of people faces with an access and not,
+    and detection model
+    '''
+    detection_model: str = SUPPORTED_DETECTION_MODELS[0]
+    tolerance: float = 0.6 # it's stated as best performance
+    granted: list[NDArray] = field(default_factory=list)
+    denied: list[NDArray] = field(default_factory=list)
 
 
 def argparser() -> argparse.ArgumentParser:
@@ -52,6 +69,10 @@ def argparser() -> argparse.ArgumentParser:
     p.add_argument('-f', '--face-detection-model', choices=SUPPORTED_DETECTION_MODELS, default=default_detection_model,
         help=f'face detection model to use, default \'{default_detection_model}\'')
 
+    default_tolerance = 0.6 # it's stated as best performance
+    p.add_argument('-t', '--tolerance', type=float, default=default_tolerance,
+        help='How much distance between faces to consider it a match. ' \
+        f'Lower is more strict, default {default_tolerance}')
 
     default_host = 'localhost'
     p.add_argument('host', nargs='?', default=default_host,
@@ -59,19 +80,71 @@ def argparser() -> argparse.ArgumentParser:
     return p
 
 
-def handle_frame(frame: MatLike,
-                 granted: list[NDArray], denied: list[NDArray]) -> bool:
-    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    # TODO: localize face, compute encoding
-    # TODO: compare with granted faces and denied, in confusing situations -> ask user
-    return True
+def ask_binary_question(prompt: str) -> bool:
+    agree_variants = [ 'y', 'yes' ]
+    reject_variants = [ 'n', 'no' ]
+
+    while True:
+        try:
+            raw_answer = input(prompt + ' (Y/n): ').strip().lower()
+            if raw_answer in agree_variants:
+                return True
+            elif raw_answer in reject_variants:
+                return False
+        except Exception as e:
+            pass # TODO: maybe log this
+
+Box = Tuple[int, int, int, int]
+
+def get_decision_from_user(frame: MatLike, boxes: list[Box]) -> bool:
+    ret = False
+    try:
+        for box in boxes:
+            top, right, bottom, left = box
+            cv2.rectangle(frame, (left, top), (right, bottom), color=(0, 255, 0))
+        cv2.imshow(f'{id(frame)}', frame)
+        cv2.waitKey(0)
+        ret = ask_binary_question('Let them in?')
+        cv2.destroyAllWindows()
+    except Exception as e:
+        print('Fatal: error while asking user', e)
+    return ret
+
+
+def handle_encoding_cb(known_encodings: list[NDArray], tolerance: float):
+    def _mapper(encoding: NDArray) -> bool:
+        return reduce(bool.__or__,
+                      map(bool, freg.compare_faces(known_encodings, encoding,
+                                                   tolerance)),
+                      False)
+    return _mapper
+
+
+def reduce_encodings(known_encodings: list[NDArray], encodings: list[NDArray],
+                     tolerance: float) -> bool:
+    return reduce(bool.__and__,
+                  map(handle_encoding_cb(known_encodings, tolerance), encodings),
+                  True)
+
+
+def handle_frame(ctx: SBCContext, frame: MatLike) -> bool:
+    rgb_frame = convert_to_rgb(frame)
+    encodings = localize_faces_and_compute_encodings(rgb_frame,
+                                                     ctx.detection_model)
+
+    is_granted = reduce_encodings(ctx.granted, encodings, ctx.tolerance)
+    is_denied = reduce_encodings(ctx.denied, encodings, ctx.tolerance)
+    if is_granted == is_denied:
+        return get_decision_from_user(frame,
+                        freg.face_locations(rgb_frame, model=ctx.detection_model))
+
+    return is_granted and not is_denied
 
 
 def handle_kbd_int(server_hook):
-    def wrapper(server_sk: socket.socket,
-                granted: list[NDArray], denied: list[NDArray]) -> int:
+    def wrapper(ctx: SBCContext, server_sk: socket.socket) -> int:
         try:
-            return server_hook(server_sk, granted, denied)
+            return server_hook(ctx, server_sk)
         except KeyboardInterrupt:
             print('Stopping server...')
         return 0
@@ -113,8 +186,7 @@ def tcp_send_answer(sk: socket.socket, answer: bool) -> int:
 
 
 @handle_kbd_int
-def tcp_server(server_sk: socket.socket,
-               granted: list[NDArray], denied: list[NDArray]) -> int:
+def tcp_server(ctx: SBCContext, server_sk: socket.socket) -> int:
     server_sk.listen(LISTEN_BACKLOG)
     sk, addr = server_sk.accept()
     print('Connected to camera', addr)
@@ -126,18 +198,16 @@ def tcp_server(server_sk: socket.socket,
         if ret: break
 
         print(frame.shape)
-        cv2.imshow(f'{id(frame)}', frame)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
         # the decision, whether allow entrance or not, is being made here
-        answer = handle_frame(frame, granted, denied)
+        answer = handle_frame(ctx, frame)
+        # print('Responding with', answer)
         ret = tcp_send_answer(sk, answer)
         if ret: break
     return ret
 
 
-def udp_server(server_sk: socket.socket,
-               granted: list[NDArray], denied: list[NDArray]) -> int:
+@handle_kbd_int
+def udp_server(ctx: SBCContext, server_sk: socket.socket) -> int:
     # TODO: udp server
     return 0
 
@@ -168,8 +238,9 @@ def main() -> int:
     ret = 0
     args = argparser().parse_args()
 
-    granted = read_faces_encodings(args.grant)
-    denied = read_faces_encodings(args.deny)
+    ctx = SBCContext(args.face_detection_model, args.tolerance,
+                     read_faces_encodings(args.grant),
+                     read_faces_encodings(args.deny))
 
     family, type, proto, _, sockaddr = socket.getaddrinfo(args.host, args.port,
         proto=PROTOS_MAP.get(args.proto, socket.IPPROTO_TCP))[0]
@@ -178,7 +249,7 @@ def main() -> int:
         sk.bind(sockaddr)
         sk.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server_info(family, sk)
-        ret = SERVER_HOOKS[proto](sk, granted, denied)
+        ret = SERVER_HOOKS[proto](ctx, sk)
     return ret
 
 

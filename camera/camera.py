@@ -10,7 +10,7 @@ from contextlib import closing
 from typing import Tuple, Optional
 from cv2.typing import MatLike
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from lock import DoorLock
 
@@ -24,12 +24,13 @@ SUPPORTED_PROTOS = list(map(lambda pair: pair[0], PROTOS_KEY_VALUES))
 PROTOS_MAP = dict(PROTOS_KEY_VALUES)
 
 
+@dataclass
 class CameraContext:
     '''Class for storing common values like webcam or frames and door lock
     '''
     camera: Optional[cv2.VideoCapture] = None
-    test_frames: list[str] = []
-    door_lock: DoorLock
+    test_frames: list[str] = field(default_factory=list)
+    door_lock: DoorLock = DoorLock()
 
 
 def argparser() -> argparse.ArgumentParser:
@@ -111,7 +112,8 @@ def tcp_send_frame(frames, sk: socket.socket) -> int:
 def tcp_recv_answer(sk: socket.socket) -> Tuple[bool, int]:
     answer, ret = False, 0
     try:
-        answer = struct.unpack('?', sk.recv(1))
+        answer = struct.unpack('?', sk.recv(1))[0]
+        # print('Received response:', answer)
     except socket.error as serr:
         print(serr)
         ret = 1
@@ -155,13 +157,12 @@ def main() -> int:
     ret = 0
     args = argparser().parse_args()
 
-    ctx = CameraContext()
-    ctx.door_lock = DoorLock()
+    ctx = None
     if not args.send_frames:
-        ctx.camera = cv2.VideoCapture(0)
+        ctx = CameraContext(cv2.VideoCapture(0), [], DoorLock())
         print('Using webcam...')
     else:
-        ctx.test_frames = args.send_frames
+        ctx = CameraContext(None, args.send_frames, DoorLock())
         print('Sending frames...')
 
     family, type, proto, _, sockaddr = socket.getaddrinfo(args.host, args.port,
