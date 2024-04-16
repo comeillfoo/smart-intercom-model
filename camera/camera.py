@@ -60,7 +60,7 @@ def argparser() -> argparse.ArgumentParser:
     return p
 
 
-def frames(ctx: CameraContext) -> Tuple[bool, Optional[MatLike]]:
+def frames(ctx: CameraContext):
     if ctx.camera is not None:
         while True:
             yield ctx.camera.read()
