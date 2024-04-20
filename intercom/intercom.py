@@ -25,7 +25,7 @@ PROTOS_MAP = dict(PROTOS_KEY_VALUES)
 
 
 @dataclass
-class CameraContext:
+class IntercomContext:
     '''Class for storing common values like webcam or frames and door lock
     '''
     camera: Optional[cv2.VideoCapture] = None
@@ -34,8 +34,8 @@ class CameraContext:
 
 
 def argparser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser('camera', description='''
-    Runs camera that connects to SBC and sends frames from WebCam for receiving
+    p = argparse.ArgumentParser('intercom', description='''
+    Runs intercom that connects to SBC and sends frames from camera for receiving
     the decision about door unlocking.
     ''')
 
@@ -60,7 +60,7 @@ def argparser() -> argparse.ArgumentParser:
     return p
 
 
-def frames(ctx: CameraContext):
+def frames(ctx: IntercomContext):
     if ctx.camera is not None:
         while True:
             yield ctx.camera.read()
@@ -85,7 +85,7 @@ def tcp_negotiate(frames, sk: socket.socket) -> int:
 
 
 def handle_kbd_int(client_hook):
-    def wrapper(ctx: CameraContext, sk: socket.socket,
+    def wrapper(ctx: IntercomContext, sk: socket.socket,
                 sockaddr, delay: float = 3.0) -> int:
         try:
             return client_hook(ctx, sk, sockaddr, delay)
@@ -124,7 +124,7 @@ def tcp_recv_answer(sk: socket.socket) -> Tuple[bool, int]:
 
 
 @handle_kbd_int
-def tcp_client(ctx: CameraContext, sk: socket.socket, sockaddr,
+def tcp_client(ctx: IntercomContext, sk: socket.socket, sockaddr,
                delay: float = 3.0) -> int:
     g = frames(ctx)
     sk.connect(sockaddr)
@@ -141,7 +141,7 @@ def tcp_client(ctx: CameraContext, sk: socket.socket, sockaddr,
     return ret
 
 
-def udp_client(ctx: CameraContext, sk: socket.socket,
+def udp_client(ctx: IntercomContext, sk: socket.socket,
                sockaddr, delay: float = 3.0) -> int:
     # TODO: udp client
     return 0
@@ -159,10 +159,10 @@ def main() -> int:
 
     ctx = None
     if not args.send_frames:
-        ctx = CameraContext(cv2.VideoCapture(0), [], DoorLock())
+        ctx = IntercomContext(cv2.VideoCapture(0), [], DoorLock())
         print('Using webcam...')
     else:
-        ctx = CameraContext(None, args.send_frames, DoorLock())
+        ctx = IntercomContext(None, args.send_frames, DoorLock())
         print('Sending frames...')
 
     family, type, proto, _, sockaddr = socket.getaddrinfo(args.host, args.port,
