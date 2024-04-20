@@ -9,3 +9,7 @@
 !.github/workflows/*.yml
 !*.sh
 !*/.gitignore
+!results/
+!results/*.log
+!results/*.png
+!*.plt

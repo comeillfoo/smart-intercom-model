@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 
 PORT=49153
-DELAY=1
+DELAY=0.1
 N=11
 TEST_IMAGE="${1:-sbc/tests/man_480p.jpg}"
 
 
 proc_mem() {
     local pid_status="/proc/$1/status"
+    local num=$2
     if [ -f "${pid_status}" ]; then
-        grep -i 'vmrss' "${pid_status}" | awk '{print $2};' -
+        echo -e "$num\t$(grep -i 'vmrss' "${pid_status}" | awk '{print $2};' -)"
         return 0
     fi
     echo 0
@@ -24,13 +25,13 @@ repeat_string() {
     done
 }
 
-run_in_venv() {
-    local dir=$1
-    shift 1
-    cd "${dir}" || return 2
-    ../in_venv.sh .venv $@
-    return $?
-}
+# run_in_venv() {
+#     local dir=$1
+#     shift 1
+#     cd "${dir}" || return 2
+#     ../in_venv.sh .venv $@
+#     return $?
+# }
 
 pymax() {
     python3 -c 'import sys; print(max(float(sys.argv[1]), float(sys.argv[2])))' $1 $2
@@ -51,11 +52,13 @@ pydiv() {
 memstat() {
     local memlog=$1
     local n=$(wc -l "${memlog}" | awk '{print $1};')
-    local mn=$(head -n 1 "${memlog}")
-    local mx=$(head -n 1 "${memlog}")
+    local mn=$(head -n 1 "${memlog}" | awk '{print $2};' -)
+    local mx=$(head -n 1 "${memlog}" | awk '{print $2};' -)
     local sum=0
 
-    while IFS= read -r num; do
+    while IFS= read -r line; do
+        i=$(echo $line | awk '{print $1};' -)
+        num=$(echo $line | awk '{print $2};' -)
         mn=$(pymin $mn $num)
         mx=$(pymax $mn $num)
         sum=$(pysum $sum $num)
@@ -70,24 +73,27 @@ memstat() {
 }
 
 
-CAMERA_ARGS="-t $(repeat_string "${N}" "../${TEST_IMAGE}")"
+INTERCOM_ARGS="-t $(repeat_string "${N}" "../${TEST_IMAGE}")"
 echo "Running sbc on port ${PORT}"
-echo "Running camera with ${CAMERA_ARGS}"
+echo "Running intercom with ${INTERCOM_ARGS}"
 
-run_in_venv ./sbc python3 ./sbc.py -P "${PORT}" &
-sbc_pid=$!
+sbc_pid=$(./in_venv.sh ./sbc .venv python3 ./sbc.py -P "${PORT}")
+echo "sbc[$sbc_pid]"
 sleep 3
 
-run_in_venv ./camera python3 ./camera.py -P "${PORT}" "${CAMERA_ARGS}" &
-camera_pid=$!
+intercom_pid=$(./in_venv.sh ./intercom .venv python3 ./intercom.py -P "${PORT}" ${INTERCOM_ARGS})
+echo "intercom[$intercom_pid]"
 
-while [ -d "/proc/${camera_pid}" ]; do
-    proc_mem "${camera_pid}" >> ./camera.mem
-    proc_mem "${sbc_pid}" >> ./sbc.mem
+counter=0
+while [ -d "/proc/${intercom_pid}" ]; do
+    proc_mem "${intercom_pid}" $counter >> ./intercom.mem
+    proc_mem "${sbc_pid}" $counter >> ./sbc.mem
+    counter=$((counter + 1))
     sleep "${DELAY}"
 done
 
-kill -9 $camera_pid
+kill -9 $intercom_pid 2>/dev/null
 kill -9 $sbc_pid
-memstat ./camera.mem
+kill -9 "$(lsof -ti:$PORT)" 2>/dev/null
+memstat ./intercom.mem
 memstat ./sbc.mem
