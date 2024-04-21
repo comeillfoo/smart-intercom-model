@@ -1,0 +1,41 @@
+@startuml
+participant Memory
+actor Оператор as op
+participant SBC
+participant Intercom
+participant Lock
+participant Camera
+
+SBC -> Memory : Прочитать лица из файла grant
+Memory --> SBC : Вернуть содержимое файла grant
+SBC -> Memory : Прочитать лица из файла deny
+Memory --> SBC : Вернуть содержимое файла deny
+SBC -> SBC : Запустить TCP-сервер
+Intercom -> SBC : Установить TCP-соединение
+SBC --> Intercom : Установить TCP-соединение
+Intercom -> Camera : Запросить тестовый кадр
+Camera --> Intercom : Вернуть тестовый кадр
+Intercom -> SBC : Послать размерность кадра\n(width, height, channels)
+group loop
+  Intercom -> Camera : Запросить кадр с камеры
+  Camera --> Intercom : Вернуть кадр
+  Intercom -> SBC : Послать кадр с камеры
+  SBC -> SBC : Распознать лицо
+  SBC -> SBC : Сравнить с лицами\nиз файлов deny и grant
+  group alt1 [совпадение в grant]
+    SBC -> Intercom : Послать разрешение на открытие
+    Intercom -> Lock : Разблокировать замок на 3 секунды
+    Lock -> Lock : Удерживать разблокированное в течение 3 секунд
+    Lock -> Lock : Заблокировать замок
+  end
+  group alt2 [совпадение в deny]
+    SBC -> Intercom : Послать запрет
+  end
+  group alt3 [нет совпадений]
+    SBC -> op : Спросить ответ у Оператора
+    op --> SBC : Разрешить/запретить
+    SBC -> Intercom : Послать ответ оператора
+    Intercom -> Intercom : Действовать исходя\nиз полученного ответа 
+  end
+end
+@enduml

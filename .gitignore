@@ -14,3 +14,4 @@
 !results/*.png
 !results/*.dat
 !*.plt
+!*.pu
