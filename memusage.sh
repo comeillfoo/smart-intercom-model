@@ -60,7 +60,7 @@ memstat() {
         i=$(echo $line | awk '{print $1};' -)
         num=$(echo $line | awk '{print $2};' -)
         mn=$(pymin $mn $num)
-        mx=$(pymax $mn $num)
+        mx=$(pymax $mx $num)
         sum=$(pysum $sum $num)
     done < "${memlog}"
 

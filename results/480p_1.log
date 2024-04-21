@@ -1,12 +1,12 @@
 Statistics for ./intercom.mem:
 
-Total: 297
-Min: 4152.0 Kb
-Max: 57380.0 Kb
-Avg: 59107.326599326596 Kb
+Total: 302
+Min: 3504.0 Kb
+Max: 59888.0 Kb
+Avg: 59324.71523178808 Kb
 Statistics for ./sbc.mem:
 
-Total: 297
-Min: 177316.0 Kb
-Max: 211280.0 Kb
-Avg: 209634.2626262626 Kb
+Total: 302
+Min: 177480.0 Kb
+Max: 211324.0 Kb
+Avg: 210070.29139072847 Kb

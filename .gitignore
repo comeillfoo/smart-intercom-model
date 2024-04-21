@@ -12,4 +12,5 @@
 !results/
 !results/*.log
 !results/*.png
+!results/*.dat
 !*.plt
